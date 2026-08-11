@@ -1,0 +1,12 @@
+{
+    "files.associations": {
+        "*.ino": "cpp"
+    },
+    "files.watcherExclude": {
+        "**/build/**": true
+    },
+    "search.exclude": {
+        "**/build/**": true
+    },
+    "C_Cpp.default.compileCommands": ".vscode/compile_commands.json"
+}

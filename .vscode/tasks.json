@@ -1,0 +1,81 @@
+{
+    "version": "2.0.0",
+    "options": {
+        "cwd": "${workspaceFolder}"
+    },
+    "tasks": [
+        {
+            "label": "Arduino: compile",
+            "type": "shell",
+            "command": "/opt/homebrew/bin/arduino-cli",
+            "args": [
+                "compile",
+                "--profile",
+                "m5stack_fire",
+                "--build-path",
+                "${workspaceFolder}/build",
+                "."
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "detail": "sketch.yaml のプロファイルでビルドし、build/compile_commands.json も更新する"
+        },
+        {
+            "label": "Arduino: board list",
+            "type": "shell",
+            "command": "/opt/homebrew/bin/arduino-cli",
+            "args": [
+                "board",
+                "list"
+            ],
+            "problemMatcher": [],
+            "detail": "接続中のシリアルポートを一覧表示する"
+        },
+        {
+            "label": "Arduino: upload",
+            "type": "shell",
+            "command": "/opt/homebrew/bin/arduino-cli",
+            "args": [
+                "upload",
+                "--profile",
+                "m5stack_fire",
+                "-p",
+                "${input:serialPort}",
+                "--input-dir",
+                "${workspaceFolder}/build",
+                "."
+            ],
+            "dependsOn": "Arduino: compile",
+            "problemMatcher": [],
+            "detail": "コンパイル済みバイナリを M5Stack Fire に書き込む"
+        },
+        {
+            "label": "Arduino: serial monitor",
+            "type": "shell",
+            "command": "/opt/homebrew/bin/arduino-cli",
+            "args": [
+                "monitor",
+                "-p",
+                "${input:serialPort}",
+                "--config",
+                "baudrate=115200"
+            ],
+            "problemMatcher": [],
+            "isBackground": true,
+            "detail": "115200 baud でシリアル出力を表示する (Ctrl+C で終了)"
+        }
+    ],
+    "inputs": [
+        {
+            "id": "serialPort",
+            "type": "promptString",
+            "description": "シリアルポート (「Arduino: board list」タスクで確認できます)",
+            "default": "/dev/cu.usbserial-59010048971"
+        }
+    ]
+}

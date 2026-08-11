@@ -1,0 +1,3 @@
+[submodule ".claude/skills/m5stack-arduino-cli"]
+	path = .claude/skills/m5stack-arduino-cli
+	url = https://github.com/YuyaIwata/m5stack-arduino-cli-skill

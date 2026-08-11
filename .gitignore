@@ -59,3 +59,9 @@ bin/
 obj/
 
 *.code-workspace
+
+# Keep this project's editor configuration under version control.
+!.vscode/
+!.vscode/tasks.json
+!.vscode/settings.json
+!.vscode/c_cpp_properties.json
