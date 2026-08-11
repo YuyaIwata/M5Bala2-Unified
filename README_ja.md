@@ -29,7 +29,7 @@ MPU6886 の姿勢角を Madgwick フィルタで推定し、角度 PID と速度
 brew install arduino-cli
 ```
 
-Claude Code 用スキルをサブモジュールとして含めているため、クローン時は `--recurse-submodules` を付けてください。
+本リポジトリの作成には Claude Code 用スキル [m5stack-arduino-cli-skill](https://github.com/YuyaIwata/m5stack-arduino-cli-skill) を活用しています。このスキルをサブモジュールとして含めているため、クローン時は `--recurse-submodules` を付けてください。
 
 ```bash
 git clone --recurse-submodules git@github.com:YuyaIwata/M5Bala2-Unified.git
