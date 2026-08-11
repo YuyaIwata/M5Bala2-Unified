@@ -3,7 +3,10 @@
 
 // Bala2 motor/servo driver on the internal I2C bus (shared with the IMU).
 static constexpr uint8_t BALA2_I2C_ADDR = 0x3A;
-static constexpr uint32_t BALA2_I2C_FREQ = 400000;
+// The M5Stack library drove this bus through Wire.begin(21, 22) at the Arduino
+// default of 100kHz. Keep that rate: the module is the only thing on the bus
+// that was validated at it, and corrupted encoder reads feed the speed PID.
+static constexpr uint32_t BALA2_I2C_FREQ = 100000;
 
 Bala::Bala() {
   wheel_left_encoder = 0;

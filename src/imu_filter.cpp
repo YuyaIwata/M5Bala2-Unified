@@ -1,3 +1,4 @@
+#include "debug_config.h"
 #include "imu_filter.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -54,6 +55,25 @@ float getAngle() {
   return angle_out;
 }
 
+// M5Unified initialises the MPU6886 with SMPLRT_DIV=3 (250Hz). Every other
+// register it writes matches what the M5Stack library used, but that library
+// used SMPLRT_DIV=1 (500Hz), and the PID gains -- kd=90 in particular -- were
+// tuned against an estimator fed at that rate. Restore 500Hz so the control
+// dynamics match the tuning.
+static void SetImuSampleRate500Hz() {
+  constexpr uint8_t MPU6886_I2C_ADDR = 0x68;
+  constexpr uint8_t REG_SMPLRT_DIV = 0x19;
+  constexpr uint8_t SMPLRT_DIV_500HZ = 0x01;
+  constexpr uint32_t IMU_I2C_FREQ = 400000;
+
+  M5.In_I2C.writeRegister8(MPU6886_I2C_ADDR, REG_SMPLRT_DIV, SMPLRT_DIV_500HZ, IMU_I2C_FREQ);
+
+#if BALA_DEBUG_TELEMETRY
+  uint8_t readback = M5.In_I2C.readRegister8(MPU6886_I2C_ADDR, REG_SMPLRT_DIV, IMU_I2C_FREQ);
+  Serial.printf("[imu] SMPLRT_DIV=%u (expect %u)\n", readback, SMPLRT_DIV_500HZ);
+#endif
+}
+
 void ImuTaskStart(float x_offset, float y_offset, float z_offset, SemaphoreHandle_t *i2c_lock) {
   gryo_x_offset = 0 - x_offset;
   gryo_y_offset = 0 - y_offset;
@@ -72,6 +92,10 @@ void ImuUpdateTask(void *arg) {
   SemaphoreHandle_t i2c_lock = *(SemaphoreHandle_t*)arg;
   angle_lock = xSemaphoreCreateRecursiveMutex();
 
+  xSemaphoreTake(i2c_lock, portMAX_DELAY);
+  SetImuSampleRate500Hz();
+  xSemaphoreGive(i2c_lock);
+
   bool fast_to_normal_angle = true;
   uint32_t last_usec = 0;
 
@@ -83,17 +107,12 @@ void ImuUpdateTask(void *arg) {
   memset(&butter_acc_y, 0, sizeof(Butter_t));
   memset(&butter_acc_z, 0, sizeof(Butter_t));
 
-  // 250hz in, filter 50hz, low pass, butterworth.
-  // M5Unified drives the MPU6886 at 250Hz (SMPLRT_DIV=3), where the original
-  // 500Hz coefficients would have halved the cutoff to 25Hz and added lag.
-  // Bilinear transform, w = tan(pi * fc / fs):
-  //   b0 = b2 = w^2/a, b1 = 2*w^2/a, a1 = 2*(w^2-1)/a, a2 = (1-sqrt(2)w+w^2)/a
-  //   where a = 1 + sqrt(2)*w + w^2
-  butter_acc_x.a1 = -0.369527f;
-  butter_acc_x.a2 = 0.195816f;
-  butter_acc_x.b0 = 0.206572f;
-  butter_acc_x.b1 = 0.413144f;
-  butter_acc_x.b2 = 0.206572f;
+  // 500hz in, filter 50hz, low pass, butterworth
+  butter_acc_x.a1 = -1.142980f;
+  butter_acc_x.a2 = 0.412801f;
+  butter_acc_x.b0 = 0.067455f;
+  butter_acc_x.b1 = 0.134910f;
+  butter_acc_x.b2 = 0.067455f;
 
   memcpy(&butter_acc_y, &butter_acc_x, sizeof(Butter_t));
   memcpy(&butter_acc_z, &butter_acc_x, sizeof(Butter_t));
@@ -150,8 +169,27 @@ void ImuUpdateTask(void *arg) {
         angle = roll_ahrs;
       }
       xSemaphoreGive(angle_lock);
+
+#if BALA_DEBUG_TELEMETRY
+      // Report the achieved IMU rate once a second so the Madgwick integration
+      // interval can be checked against the sensor's actual output data rate.
+      static uint32_t sample_count = 0;
+      static uint32_t rate_window_start = 0;
+      sample_count++;
+      uint32_t now = millis();
+      if (now - rate_window_start >= 1000) {
+        Serial.printf("[imu] t=%6lums rate=%3lu Hz raw=(%6.2f %6.2f %6.2f) corrected=(%6.2f %6.2f %6.2f) acc=(%5.2f %5.2f %5.2f)\n",
+                      (unsigned long)now, (unsigned long)sample_count,
+                      imu_data.gyro.x, imu_data.gyro.y, imu_data.gyro.z,
+                      gyro_x, gyro_y, gyro_z, acc_x, acc_y, acc_z);
+        sample_count = 0;
+        rate_window_start = now;
+      }
+#endif
     }
 
-    vTaskDelayUntil(&last_ticks, pdMS_TO_TICKS(2));
+    // Poll faster than the 500Hz data rate so no sample is missed; update()
+    // returns 0 when nothing new has arrived.
+    vTaskDelayUntil(&last_ticks, pdMS_TO_TICKS(1));
   }
 }
