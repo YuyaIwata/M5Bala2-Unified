@@ -21,13 +21,14 @@
 //---------------------------------------------------------------------------------------------------
 // Definitions
 #define RAD_TO_DEG 57.295779513082320876798154814105
-#define sampleFreq	500.0f		// sample frequency in Hz
+#define sampleFreqDef	500.0f		// default sample frequency in Hz
 #define betaDef		10.0f		// 2 * proportional gain
 
 //---------------------------------------------------------------------------------------------------
 // Variable definitions
 
 volatile float beta = betaDef;								// 2 * proportional gain (Kp)
+volatile static float invSampleFreq = 1.0f / sampleFreqDef;	// integration period in seconds
 volatile static float q0 = 1.0f, q1 = 0.0f, q2 = 0.0f, q3 = 0.0f;	// quaternion of sensor frame relative to auxiliary frame
 
 //---------------------------------------------------------------------------------------------------
@@ -41,6 +42,15 @@ static float invSqrt(float x);
 
 void MadgwickAHRSetBeta(float beta_in) {
 	beta = beta_in;
+}
+
+// Set the actual interval between updates. The original code assumed a fixed
+// 500Hz FIFO burst; with M5Unified the IMU is polled, so the caller measures
+// the real interval and feeds it back here.
+void MadgwickAHRSetDeltaT(float delta_t) {
+	if (delta_t > 0.0f) {
+		invSampleFreq = delta_t;
+	}
 }
 
 
@@ -131,10 +141,10 @@ void MadgwickAHRSupdate(float gx, float gy, float gz, float ax, float ay, float 
 	}
 
 	// Integrate rate of change of quaternion to yield quaternion
-	q0 += qDot1 * (1.0f / sampleFreq);
-	q1 += qDot2 * (1.0f / sampleFreq);
-	q2 += qDot3 * (1.0f / sampleFreq);
-	q3 += qDot4 * (1.0f / sampleFreq);
+	q0 += qDot1 * invSampleFreq;
+	q1 += qDot2 * invSampleFreq;
+	q2 += qDot3 * invSampleFreq;
+	q3 += qDot4 * invSampleFreq;
 
 	// Normalise quaternion
 	recipNorm = invSqrt(q0 * q0 + q1 * q1 + q2 * q2 + q3 * q3);
@@ -202,10 +212,10 @@ void MadgwickAHRSupdateIMU(float gx, float gy, float gz, float ax, float ay, flo
 	}
 
 	// Integrate rate of change of quaternion to yield quaternion
-	q0 += qDot1 * (1.0f / sampleFreq);
-	q1 += qDot2 * (1.0f / sampleFreq);
-	q2 += qDot3 * (1.0f / sampleFreq);
-	q3 += qDot4 * (1.0f / sampleFreq);
+	q0 += qDot1 * invSampleFreq;
+	q1 += qDot2 * invSampleFreq;
+	q2 += qDot3 * invSampleFreq;
+	q3 += qDot4 * invSampleFreq;
 
 	// Normalise quaternion
 	recipNorm = invSqrt(q0 * q0 + q1 * q1 + q2 * q2 + q3 * q3);

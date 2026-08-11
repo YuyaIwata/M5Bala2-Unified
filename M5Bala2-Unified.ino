@@ -1,6 +1,4 @@
-#define M5STACK_MPU6886 
-
-#include <M5Stack.h>
+#include <M5Unified.h>
 #include "freertos/FreeRTOS.h"
 #include "./src/imu_filter.h"
 #include "./src/MadgwickAHRS.h"
@@ -28,12 +26,19 @@ PID speed_pid(0, s_kp, s_ki, s_kd);
 void setup(){
   // Initialize the M5Stack object
 
-  M5.begin(true, false, false, false);
+  auto cfg = M5.config();
+  cfg.internal_imu = true;
+  cfg.internal_spk = false;
+  cfg.internal_mic = false;
+  M5.begin(cfg);
 
   Serial.begin(115200);
-  M5.IMU.Init();
 
-  int16_t x_offset, y_offset, z_offset;
+  // M5Unified latches button state in update(), so it must run once before the
+  // boot-time button checks below.
+  M5.update();
+
+  float x_offset, y_offset, z_offset;
   float angle_center;
   calibrationInit();
 
@@ -46,10 +51,12 @@ void setup(){
     M5.Lcd.setCursor(0, 0);
     M5.Lcd.println("Charge mode");
     while (1) {
-        if (M5.Power.isCharging()) {
+        if (M5.Power.isCharging() == m5::Power_Class::is_charging) {
             M5.Lcd.println("Start charging...");
             while(1) {
-                if (M5.Power.isChargeFull())
+                // M5Unified has no isChargeFull(); the IP5306 reports a full
+                // pack as 100% instead.
+                if (M5.Power.getBatteryLevel() >= 100)
                     M5.Lcd.println("Charge completed!");
                 delay(5000);
             }
@@ -59,7 +66,7 @@ void setup(){
   }
 
   calibrationGet(&x_offset, &y_offset, &z_offset, &angle_center);
-  Serial.printf("x: %d, y: %d, z:%d, angle: %.2f", x_offset, y_offset, z_offset, angle_center);
+  Serial.printf("x: %.4f, y: %.4f, z: %.4f, angle: %.2f", x_offset, y_offset, z_offset, angle_center);
 
   angle_point = angle_center;
   pid.SetPoint(angle_point);

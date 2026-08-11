@@ -1,5 +1,9 @@
 #include "bala.h"
-#include "M5Stack.h"
+#include <M5Unified.h>
+
+// Bala2 motor/servo driver on the internal I2C bus (shared with the IMU).
+static constexpr uint8_t BALA2_I2C_ADDR = 0x3A;
+static constexpr uint32_t BALA2_I2C_FREQ = 400000;
 
 Bala::Bala() {
   wheel_left_encoder = 0;
@@ -31,14 +35,14 @@ void Bala::SetEncoder(int32_t wheel_left, int32_t wheel_right) {
   data_out[6] = (uint8_t)(wheel_right >> 8);
   data_out[7] = (uint8_t)(wheel_right >> 0);
   if(i2c_mutex != NULL) { xSemaphoreTake(i2c_mutex, portMAX_DELAY); }
-  M5.I2C.writeBytes(0x3A, 0x10, data_out, 8);
+  M5.In_I2C.writeRegister(BALA2_I2C_ADDR, 0x10, data_out, 8, BALA2_I2C_FREQ);
   if(i2c_mutex != NULL) { xSemaphoreGive(i2c_mutex); }
 }
 
 void Bala::UpdateEncoder() {
   uint8_t data_in[8];
   if(i2c_mutex != NULL) { xSemaphoreTake(i2c_mutex, portMAX_DELAY); }
-  M5.I2C.readBytes(0x3A, 0x10, 8, data_in);
+  M5.In_I2C.readRegister(BALA2_I2C_ADDR, 0x10, data_in, 8, BALA2_I2C_FREQ);
   if(i2c_mutex != NULL) { xSemaphoreGive(i2c_mutex); }
 
   wheel_left_encoder = (data_in[0] << 24) | (data_in[1] << 16) | (data_in[2] << 8) | data_in[3];
@@ -54,7 +58,7 @@ void Bala::SetSpeed(int16_t wheel_left, int16_t wheel_right) {
   data_out[3] = (int8_t)(wheel_right >> 0);
 
   if(i2c_mutex != NULL) { xSemaphoreTake(i2c_mutex, portMAX_DELAY); }
-  M5.I2C.writeBytes(0x3A, 0x00, data_out, 4);
+  M5.In_I2C.writeRegister(BALA2_I2C_ADDR, 0x00, data_out, 4, BALA2_I2C_FREQ);
   if(i2c_mutex != NULL) { xSemaphoreGive(i2c_mutex); }
 }
 
@@ -72,7 +76,7 @@ void Bala::SetServoAngle(uint8_t pos, uint8_t angle) {
   pos = pos - 1;
 
   if(i2c_mutex != NULL) { xSemaphoreTake(i2c_mutex, portMAX_DELAY); }
-  M5.I2C.writeBytes(0x3A, 0x20 | pos, &angle, 1);
+  M5.In_I2C.writeRegister(BALA2_I2C_ADDR, 0x20 | pos, &angle, 1, BALA2_I2C_FREQ);
   if(i2c_mutex != NULL) { xSemaphoreGive(i2c_mutex); }
 }
 
@@ -89,7 +93,7 @@ void Bala::SetServoPulse(uint8_t pos, uint16_t width) {
   buff_out[1] = width & 0xff;
 
   if(i2c_mutex != NULL) { xSemaphoreTake(i2c_mutex, portMAX_DELAY); }
-  M5.I2C.writeBytes(0x3A, 0x30 | pos, buff_out, 2);
+  M5.In_I2C.writeRegister(BALA2_I2C_ADDR, 0x30 | pos, buff_out, 2, BALA2_I2C_FREQ);
   if(i2c_mutex != NULL) { xSemaphoreGive(i2c_mutex); }
 
 }

@@ -3,4 +3,6 @@
 void calibrationGryo();
 void calibrationInit();
 void calibrationSaveCenterAngle(float angle);
-void calibrationGet(int16_t* gyro_x_offset, int16_t* gyro_y_offset, int16_t* gyro_z_offset, float *angle_center);
+
+// Gyro offsets are in deg/s, matching the units M5Unified reports.
+void calibrationGet(float* gyro_x_offset, float* gyro_y_offset, float* gyro_z_offset, float *angle_center);
