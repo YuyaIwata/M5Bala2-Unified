@@ -10,14 +10,14 @@ MPU6886 の姿勢角を Madgwick フィルタで推定し、角度 PID と速度
 
 ## 対象ハードウェア
 
-| 項目 | 値 |
-|---|---|
-| 製品 | Bala2-Fire (SKU: K014-E) |
-| 本体 | M5Stack Fire (ESP32, 16MB flash, PSRAM 4MB) |
+| 項目           | 値                                                                                                   |
+| -------------- | ---------------------------------------------------------------------------------------------------- |
+| 製品           | Bala2-Fire (SKU: K014-E)                                                                             |
+| 本体           | M5Stack Fire (ESP32, 16MB flash, PSRAM 4MB)                                                          |
 | モーターベース | BALA2（メインコントローラ STM32F030C8T6、N20 エンコーダ付減速モーター 2 基、1200mAh バッテリー内蔵） |
-| ベースとの通信 | I2C アドレス `0x3A`、内部 I2C バス、100kHz |
-| IMU | MPU6886 |
-| FQBN | `m5stack:esp32:m5stack_fire` |
+| ベースとの通信 | I2C アドレス `0x3A`、内部 I2C バス、100kHz                                                           |
+| IMU            | MPU6886                                                                                              |
+| FQBN           | `m5stack:esp32:m5stack_fire`                                                                         |
 
 関連ドキュメント: [Bala2-Fire](https://docs.m5stack.com/en/app/bala2fire) / [Bala2](https://docs.m5stack.com/en/app/bala2)
 
@@ -66,12 +66,12 @@ M5Stack Fire は CH9102 または CP210x の USB シリアルブリッジを搭�
 
 ## 操作方法
 
-| 操作 | 動作 |
-|---|---|
-| ボタン A | 目標角度を +0.25° |
-| ボタン C | 目標角度を -0.25° |
+| 操作                      | 動作                                                                                  |
+| ------------------------- | ------------------------------------------------------------------------------------- |
+| ボタン A                  | 目標角度を +0.25°                                                                     |
+| ボタン C                  | 目標角度を -0.25°                                                                     |
 | ボタン B を押しながら起動 | キャリブレーションモード。ジャイロ補正後、B 押下で現在の角度を中心角として NVS に保存 |
-| ボタン C を押しながら起動 | 充電モード |
+| ボタン C を押しながら起動 | 充電モード                                                                            |
 
 制御ゲインは [M5Bala2-Unified.ino](M5Bala2-Unified.ino) の先頭で定義しています。
 
@@ -82,18 +82,18 @@ float s_kp = 15.0f, s_ki = 0.075f, s_kd = 0.0f; // 速度 PID
 
 ## ファイル構成
 
-| ファイル | 役割 |
-|---|---|
-| [M5Bala2-Unified.ino](M5Bala2-Unified.ino) | メイン。初期化、PID タスク（84Hz）、波形描画 |
-| [src/bala.cpp](src/bala.cpp) / [src/bala.h](src/bala.h) | BALA2 ベースとの I2C 通信（速度指令、エンコーダ、サーボ） |
-| [src/imu_filter.cpp](src/imu_filter.cpp) / [src/imu_filter.h](src/imu_filter.h) | IMU 読み出しタスクと姿勢角推定 |
-| [src/MadgwickAHRS.cpp](src/MadgwickAHRS.cpp) / [src/MadgwickAHRS.h](src/MadgwickAHRS.h) | Madgwick 姿勢推定フィルタ |
-| [src/pid.cpp](src/pid.cpp) / [src/pid.h](src/pid.h) | PID 制御器 |
-| [src/calibration.cpp](src/calibration.cpp) / [src/calibration.h](src/calibration.h) | ジャイロオフセットと中心角の NVS 保存 |
-| [src/bala_img.c](src/bala_img.c) | 起動画面の JPEG 画像データ |
-| [sketch.yaml](sketch.yaml) | Arduino CLI のビルドプロファイル |
-| [debug_config.h](debug_config.h) | シリアルテレメトリの有効/無効 |
-| [tools/gen_vscode_config.py](tools/gen_vscode_config.py) | 実ビルドから IntelliSense 設定を生成 |
+| ファイル                                                                                | 役割                                                      |
+| --------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| [M5Bala2-Unified.ino](M5Bala2-Unified.ino)                                              | メイン。初期化、PID タスク（84Hz）、波形描画              |
+| [src/bala.cpp](src/bala.cpp) / [src/bala.h](src/bala.h)                                 | BALA2 ベースとの I2C 通信（速度指令、エンコーダ、サーボ） |
+| [src/imu_filter.cpp](src/imu_filter.cpp) / [src/imu_filter.h](src/imu_filter.h)         | IMU 読み出しタスクと姿勢角推定                            |
+| [src/MadgwickAHRS.cpp](src/MadgwickAHRS.cpp) / [src/MadgwickAHRS.h](src/MadgwickAHRS.h) | Madgwick 姿勢推定フィルタ                                 |
+| [src/pid.cpp](src/pid.cpp) / [src/pid.h](src/pid.h)                                     | PID 制御器                                                |
+| [src/calibration.cpp](src/calibration.cpp) / [src/calibration.h](src/calibration.h)     | ジャイロオフセットと中心角の NVS 保存                     |
+| [src/bala_img.c](src/bala_img.c)                                                        | 起動画面の JPEG 画像データ                                |
+| [sketch.yaml](sketch.yaml)                                                              | Arduino CLI のビルドプロファイル                          |
+| [debug_config.h](debug_config.h)                                                        | シリアルテレメトリの有効/無効                             |
+| [tools/gen_vscode_config.py](tools/gen_vscode_config.py)                                | 実ビルドから IntelliSense 設定を生成                      |
 
 ## 調査用テレメトリ
 
@@ -134,15 +134,15 @@ ESP32 core 3.x は大半のフラグを GCC のレスポンスファイル（`@f
 
 ### M5Unified 移行に伴う挙動の変更
 
-| 項目 | 上流 | 本フォーク |
-|---|---|---|
-| IMU 読み出し | MPU6886 の FIFO を直接バースト読み出し | `M5.Imu.update()` によるポーリング |
-| IMU サンプリングレート | 500Hz（`SMPLRT_DIV=1`） | 500Hz を維持（M5Unified の既定 250Hz を明示的に書き換え） |
-| Madgwick の積分幅 | 500Hz 固定 | `imu_data.usec` から実測した間隔を毎回反映 |
-| 制御周期 | 5ms 指定・実測 11.9ms | **12ms を明示指定**（下記参照） |
-| ジャイロオフセット | 生 ADC 値、NVS キー `gryo_*` | deg/s、NVS キー `gyro_*` |
-| 満充電判定 | `M5.Power.isChargeFull()` | `M5.Power.getBatteryLevel() >= 100`（M5Unified に同等 API がないため） |
-| BALA2 ベースとの I2C | `M5.I2C.writeBytes` / `readBytes`（100kHz） | `M5.In_I2C.writeRegister` / `readRegister`（100kHz を維持） |
+| 項目                   | 上流                                        | 本フォーク                                                             |
+| ---------------------- | ------------------------------------------- | ---------------------------------------------------------------------- |
+| IMU 読み出し           | MPU6886 の FIFO を直接バースト読み出し      | `M5.Imu.update()` によるポーリング                                     |
+| IMU サンプリングレート | 500Hz（`SMPLRT_DIV=1`）                     | 500Hz を維持（M5Unified の既定 250Hz を明示的に書き換え）              |
+| Madgwick の積分幅      | 500Hz 固定                                  | `imu_data.usec` から実測した間隔を毎回反映                             |
+| 制御周期               | 5ms 指定・実測 11.9ms                       | **12ms を明示指定**（下記参照）                                        |
+| ジャイロオフセット     | 生 ADC 値、NVS キー `gryo_*`                | deg/s、NVS キー `gyro_*`                                               |
+| 満充電判定             | `M5.Power.isChargeFull()`                   | `M5.Power.getBatteryLevel() >= 100`（M5Unified に同等 API がないため） |
+| BALA2 ベースとの I2C   | `M5.I2C.writeBytes` / `readBytes`（100kHz） | `M5.In_I2C.writeRegister` / `readRegister`（100kHz を維持）            |
 
 ### 制御周期を 12ms に固定している理由
 
