@@ -6,7 +6,7 @@
 
 上流は `M5Stack` ライブラリ（0.4.6）を使っており、同ライブラリは 2023 年で更新が止まっているため core 3.x でビルドできません（ESP-IDF 5.x で削除された `rom/miniz.h` に依存）。上流の README にも「ボードマネージャを 2.1.4 に下げてください」という注意書きがあります。本フォークはこの制約を解消します。
 
-MPU6886 の姿勢角を Madgwick フィルタで推定し、角度 PID と速度 PID の 2 段構成で車輪を制御します。画面には傾き角の波形をリアルタイム表示します。実機で上流と同等の安定性を確認済みです。
+MPU6886 の姿勢角を Madgwick フィルタで推定し、角度 PID と速度 PID の 2 段構成で車輪を制御します。傾き角の波形は M5Canvas によるちらつきのない描画で、姿勢制御とは別のコアで動きます。実機で上流と同等の安定性を確認済みです。
 
 ## 対象ハードウェア
 
@@ -84,16 +84,33 @@ float s_kp = 15.0f, s_ki = 0.075f, s_kd = 0.0f; // 速度 PID
 
 | ファイル                                                                                | 役割                                                      |
 | --------------------------------------------------------------------------------------- | --------------------------------------------------------- |
-| [M5Bala2-Unified.ino](M5Bala2-Unified.ino)                                              | メイン。初期化、PID タスク（84Hz）、波形描画              |
+| [M5Bala2-Unified.ino](M5Bala2-Unified.ino)                                              | メイン。初期化、PID タスク（84Hz）、ボタン処理            |
+| [src/display.cpp](src/display.cpp) / [src/display.h](src/display.h)                     | M5Canvas による描画タスク（コア 0、20 FPS）               |
 | [src/bala.cpp](src/bala.cpp) / [src/bala.h](src/bala.h)                                 | BALA2 ベースとの I2C 通信（速度指令、エンコーダ、サーボ） |
 | [src/imu_filter.cpp](src/imu_filter.cpp) / [src/imu_filter.h](src/imu_filter.h)         | IMU 読み出しタスクと姿勢角推定                            |
 | [src/MadgwickAHRS.cpp](src/MadgwickAHRS.cpp) / [src/MadgwickAHRS.h](src/MadgwickAHRS.h) | Madgwick 姿勢推定フィルタ                                 |
 | [src/pid.cpp](src/pid.cpp) / [src/pid.h](src/pid.h)                                     | PID 制御器                                                |
 | [src/calibration.cpp](src/calibration.cpp) / [src/calibration.h](src/calibration.h)     | ジャイロオフセットと中心角の NVS 保存                     |
-| [src/bala_img.c](src/bala_img.c)                                                        | 起動画面の JPEG 画像データ                                |
 | [sketch.yaml](sketch.yaml)                                                              | Arduino CLI のビルドプロファイル                          |
 | [debug_config.h](debug_config.h)                                                        | シリアルテレメトリの有効/無効                             |
 | [tools/gen_vscode_config.py](tools/gen_vscode_config.py)                                | 実ビルドから IntelliSense 設定を生成                      |
+
+## タスクとコアの割り当て
+
+ESP32 の 2 コアを、描画と制御で分けています。
+
+| タスク | コア | 優先度 | 周期 | 役割 |
+| ------ | ---- | ------ | ---- | ---- |
+| `imu_task` | 1 | 5 | 1ms ポーリング | IMU 読み出しと姿勢推定（500Hz のサンプルを取得） |
+| `pid_task` | 1 | 4 | 12ms | 角度 PID と速度 PID、BALA2 ベースへの I2C |
+| `loop()` | 1 | 1 | 20ms | ボタン処理 |
+| `display_task` | 0 | 1 | 50ms | M5Canvas による描画 |
+
+描画をコア 0 に分離しているのは、320×240×16bpp のスプライト転送に約 45ms かかるためです。コア 1 に置くと 12ms の制御周期を確実に破綻させます。優先度を最低にしているのは、フレーム落ちは許容できても制御の遅延は許容できないためです。
+
+フレーム周期を転送時間より長い 50ms にしているのは意図的です。40ms にすると描画タスクが休みなく回って PSRAM と SPI バスを占有し続け、制御周期のばらつきが実測で min 10333 / max 13678µs まで広がりました。50ms では min 11918 / max 12062µs に収まります。
+
+スプライトは 150KB になるため PSRAM に確保しています。確保に失敗した場合は 8bpp にフォールバックします。描画タスクは I2C に触れません（`getAngle()` は専用のミューテックスで保護されており、I2C バスとは無関係です）。
 
 ## 調査用テレメトリ
 
@@ -102,7 +119,8 @@ float s_kp = 15.0f, s_ki = 0.075f, s_kd = 0.0f; // 速度 PID
 ```
 angle=   2.18 d=+0.012 enc=   89536 speed=    0.00 pwm_angle=   20 pwm_speed=    0 out=   20
 [imu] t=  2001ms rate=499 Hz raw=(  0.92  -0.61   0.67) corrected=(  0.58  -0.59   1.09) acc=(-0.04  0.03  1.00)
-[pid] period avg=11998us min=11402us max=12688us n=84
+[pid] period avg=12000us min=11918us max=12062us n=84
+[lcd] 20 fps (core 0)
 ```
 
 制御周期そのものを調べるときは `BALA_DEBUG_STREAM` を 0 にしてください。20Hz の出力は 1 行約 95 バイトあり、115200 baud では送信待ちが PID タスクをブロックして、測りたい周期自体を歪めます。
@@ -130,6 +148,8 @@ ESP32 core 3.x は大半のフラグを GCC のレスポンスファイル（`@f
 - デバイス層を `M5Stack` ライブラリから M5Unified に移行し、ESP32 core 3.x / ESP-IDF 5.x でビルドできるようにした
 - Arduino CLI のビルドプロファイル [sketch.yaml](sketch.yaml) を追加（M5Stack Fire 向けに固定）
 - VSCode の設定（タスクと IntelliSense）とテレメトリを追加
+- 描画を M5Canvas に移行し、コア 0 の専用タスクに分離（ちらつきの排除と、制御周期への干渉の回避）
+- 背景画像 `src/bala_img.c` を削除して黒背景に（253KB の未使用データ、フラッシュ使用量が 41KB 減）
 - スケッチ名をリポジトリ名に合わせて `M5Bala2.ino` から `M5Bala2-Unified.ino` に変更（Arduino CLI はディレクトリ名と `.ino` 名の一致を要求するため）
 
 ### M5Unified 移行に伴う挙動の変更

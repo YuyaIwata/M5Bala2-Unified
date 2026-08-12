@@ -6,10 +6,9 @@
 #include "./src/bala.h"
 #include "./src/pid.h"
 #include "./src/calibration.h"
+#include "./src/display.h"
 
-extern uint8_t bala_img[41056];
 static void PIDTask(void *arg);
-static void draw_waveform();
 
 static float angle_point = -1.5;
 
@@ -101,23 +100,15 @@ void setup(){
   bala.SetMutex(&i2c_mutex);   
   ImuTaskStart(x_offset, y_offset, z_offset, &i2c_mutex);
   xTaskCreatePinnedToCore(PIDTask, "pid_task", 4 * 1024, NULL, 4, NULL, 1);
-  
-  M5.Lcd.drawJpg(bala_img, 41056);
-  if (calibration_mode) {
-    M5.Lcd.setCursor(0, 0);
-    M5.Lcd.printf("calibration mode");
-  }
+
+  DisplayTaskStart(calibration_mode);
 }
 
-// the loop routine runs over and over again forever
+// Rendering lives in its own task on core 0, so this loop only polls the
+// buttons. It stays on core 1 with the control tasks (ARDUINO_RUNNING_CORE=1)
+// at the lowest priority, and the work is a few GPIO reads.
 void loop() {
-  static uint32_t next_show_time = 0;
-  vTaskDelay(pdMS_TO_TICKS(5));
-  
-  if(millis() > next_show_time) {
-    draw_waveform();
-    next_show_time = millis() + 10;
-  }
+  vTaskDelay(pdMS_TO_TICKS(20));
 
   M5.update();
   if (M5.BtnA.wasPressed()) {
@@ -228,24 +219,3 @@ static void PIDTask(void *arg) {
   }
 }
 
-static void draw_waveform() {
-	#define MAX_LEN 120
-	#define X_OFFSET 100
-	#define Y_OFFSET 95
-	#define X_SCALE 3
-	static int16_t val_buf[MAX_LEN] = {0};
-	static int16_t pt = MAX_LEN - 1;
-	val_buf[pt] = constrain((int16_t)(getAngle() * X_SCALE), -50, 50);
-
-  if (--pt < 0) {
-		pt = MAX_LEN - 1;
-	}
-
-	for (int i = 1; i < (MAX_LEN); i++) {
-		uint16_t now_pt = (pt + i) % (MAX_LEN);
-		M5.Lcd.drawLine(i + X_OFFSET, val_buf[(now_pt + 1) % MAX_LEN] + Y_OFFSET, i + 1 + X_OFFSET, val_buf[(now_pt + 2) % MAX_LEN] + Y_OFFSET, TFT_BLACK);
-		if (i < MAX_LEN - 1) {
-			M5.Lcd.drawLine(i + X_OFFSET, val_buf[now_pt] + Y_OFFSET, i + 1 + X_OFFSET, val_buf[(now_pt + 1) % MAX_LEN] + Y_OFFSET, TFT_GREEN);
-    }
-	}
-}
