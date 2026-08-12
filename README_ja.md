@@ -76,9 +76,64 @@ M5Stack Fire は CH9102 または CP210x の USB シリアルブリッジを搭�
 制御ゲインは [M5Bala2-Unified.ino](M5Bala2-Unified.ino) の先頭で定義しています。
 
 ```cpp
-float kp = 24.0f, ki = 0.0f, kd = 90.0f;        // 角度 PID
-float s_kp = 15.0f, s_ki = 0.075f, s_kd = 0.0f; // 速度 PID
+float kp = 24.0f, ki = 0.0f, kd = 90.0f;         // 角度 PID
+float s_kp = 15.0f, s_ki = 0.075f, s_kd = 50.0f; // 速度 PID
 ```
+
+## ROS 2 インターフェース
+
+ノード名 `bala2`、Wi-Fi 経由で micro-ROS エージェントに接続します。
+
+| 方向 | トピック | 型 | 内容 |
+| ---- | -------- | -- | ---- |
+| Pub | `/imu` | `sensor_msgs/Imu` | クォータニオン、角速度 rad/s、加速度 m/s^2。50Hz |
+| Pub | `/wheel` | `geometry_msgs/Vector3` | x=左エンコーダ y=右エンコーダ z=車輪速度 |
+| Pub | `/control` | `geometry_msgs/Vector3` | x=傾き角 y=PWM z=有効フラグ |
+| Pub | `/yaw` | `geometry_msgs/Vector3` | x=実測方位 y=目標方位 z=差動 PWM |
+| Pub | `/center_angle_state` | `std_msgs/Float32` | 現在の中心角 |
+| Sub | `/cmd_vel` | `geometry_msgs/Twist` | `linear.x` で前後、`angular.z` で旋回。REP-103 準拠で正が反時計回り |
+| Sub | `/enable` | `std_msgs/Bool` | 制御の開始停止 |
+| Sub | `/pid_gains` | `std_msgs/Float32MultiArray` | kp, ki, kd, s_kp, s_ki, s_kd の 6 要素 |
+| Sub | `/drive_scale` | `std_msgs/Float32MultiArray` | speed_scale, yaw_rate_scale, yaw_kp, yaw_kd, pos_kp, pos_kd の 6 要素 |
+| Sub | `/center_angle` | `std_msgs/Float32` | 中心角を度で設定。保存はボタン B |
+
+購読は 5 個が上限です。プリコンパイル済みの `micro_ros_arduino` が `RMW_UXRCE_MAX_SUBSCRIPTIONS 5` でビルドされているためで、6 個目を作るとエンティティ生成全体が失敗します（配信は 10 個まで）。中心角の保存を独立したトピックにせずボタン B に残しているのはこの制約のためです。
+
+`cmd_vel` は 500ms 途絶えると速度指令が 0 に戻ります。バランス制御は維持したまま走行だけを止める設計です。エージェントとの接続が切れた場合は `enable` を false に落とします。
+
+エージェントは `apple/container` でも動きます。`--net=host` は不要で、UDP ポートを公開すれば ESP32 から到達できます。
+
+```bash
+container run --rm --name uros-agent -p 8888:8888/udp \
+  microros/micro-ros-agent:jazzy udp4 --port 8888 -v4
+```
+
+## 制御の構成
+
+4 つのループを重ねています。
+
+| ループ | 制御量 | 出力先 | 実測の効果 |
+| ------ | ------ | ------ | ---------- |
+| 角度 PID | 傾き角 | PWM | 自立 |
+| 速度 PID | 車輪速度 | PWM | 速度の減衰 |
+| 位置ループ | エンコーダ積算値 | 速度 PID の目標値 | 一方向のドリフトが振幅 812 カウントの往復に |
+| 方位ループ | ジャイロ Z の積分値 | 左右輪の差動 PWM | 直進時の方位ずれが 8 秒で 0.36 度 |
+
+位置と方位はどちらも「指令を積分して目標値を作る」構成です。`linear.x` は目標位置を動かし、`angular.z` は目標方位を回します。指令をやめると目標値が止まるため、その場に留まろうとします。この構造が超信地旋回を可能にしています。
+
+上流には位置ループと方位ループがなく、速度 PID が車輪速度 0 を目標にするだけでした。ゆっくりした移動は目標を満たしてしまうため、実機では数千カウント一方向に流れて転倒することがありました。
+
+### 実機で決めたゲイン
+
+| パラメータ | 値 | 決定の根拠 |
+| ---------- | -- | ---------- |
+| `s_kd` | 50.0 | 0 で振幅 992、20 で 854、50 で 812、100 で 860 に悪化し PWM 要求が 336 から 548 に増加 |
+| `POS_KP_DEFAULT` | 0.01 | 0.02 は振幅 1170、0.005 は 1028 の一方向ドリフト |
+| `POS_KD_DEFAULT` | 0.0 | 0.4 で振幅が 812 から 3324 に悪化。速度フィードバックは内側の速度 PID が担っており重複する |
+| `YAW_KP_DEFAULT` | 25.0 | 8.0 では方位が 40 度ずれて差動が飽和、25.0 で 0.36 度に収まる |
+| `YAW_KD_DEFAULT` | 150.0 | P を上げたことに伴う減衰 |
+
+中心角（平衡点）は NVS に保存します。実機では 1.25 度でした。0.25 度や 0.75 度では PWM が飽和して転倒しました。ROS から `/center_angle` で調整し、ボタン B で保存します。
 
 ## ファイル構成
 
@@ -92,6 +147,10 @@ float s_kp = 15.0f, s_ki = 0.075f, s_kd = 0.0f; // 速度 PID
 | [src/pid.cpp](src/pid.cpp) / [src/pid.h](src/pid.h)                                     | PID 制御器                                                |
 | [src/calibration.cpp](src/calibration.cpp) / [src/calibration.h](src/calibration.h)     | ジャイロオフセットと中心角の NVS 保存                     |
 | [sketch.yaml](sketch.yaml)                                                              | Arduino CLI のビルドプロファイル                          |
+| [src/control_state.cpp](src/control_state.cpp) / [src/control_state.h](src/control_state.h) | コア間のコマンドとパラメータの受け渡し                    |
+| [src/ros_interface.cpp](src/ros_interface.cpp) / [src/ros_interface.h](src/ros_interface.h) | micro-ROS のタスク（コア 0）                              |
+| [tools/fetch_micro_ros.sh](tools/fetch_micro_ros.sh)                                    | micro_ros_arduino の取得                                  |
+| [src/ros_config.h.example](src/ros_config.h.example)                                    | Wi-Fi とエージェントの設定テンプレート                    |
 | [debug_config.h](debug_config.h)                                                        | シリアルテレメトリの有効/無効                             |
 | [tools/gen_vscode_config.py](tools/gen_vscode_config.py)                                | 実ビルドから IntelliSense 設定を生成                      |
 
