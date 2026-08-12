@@ -7,6 +7,8 @@
 #include "./src/pid.h"
 #include "./src/calibration.h"
 #include "./src/display.h"
+#include "./src/control_state.h"
+#include "./src/ros_interface.h"
 
 static void PIDTask(void *arg);
 
@@ -35,6 +37,14 @@ static float angle_point = -1.5;
 // Run the loop at the period the original actually achieved, so both the gain
 // scaling and the I2C command rate match the configuration that balances.
 static const uint32_t PID_PERIOD_MS = 12;
+
+// A cmd_vel of 1.0 shifts the speed PID setpoint by this many encoder counts
+// per control cycle. Kept modest: the wheels have to stay available to the
+// balance loop, and the wheel speed observed while balancing spans about +-17.
+static const float DRIVE_SPEED_SCALE = 12.0f;
+
+// Differential PWM applied at full angular command.
+static const float TURN_PWM_SCALE = 250.0f;
 
 float kp = 24.0f, ki = 0.0f, kd = 90.0f;
 float s_kp = 15.0f, s_ki = 0.075f, s_kd = 0.0f;
@@ -99,9 +109,13 @@ void setup(){
   i2c_mutex = xSemaphoreCreateMutex();
   bala.SetMutex(&i2c_mutex);   
   ImuTaskStart(x_offset, y_offset, z_offset, &i2c_mutex);
+  PidGains_t initial_gains = {kp, ki, kd, s_kp, s_ki, s_kd};
+  ControlStateInit(&initial_gains);
+
   xTaskCreatePinnedToCore(PIDTask, "pid_task", 4 * 1024, NULL, 4, NULL, 1);
 
   DisplayTaskStart(calibration_mode);
+  RosTaskStart();
 }
 
 // Rendering lives in its own task on core 0, so this loop only polls the
@@ -141,6 +155,9 @@ static void PIDTask(void *arg) {
   int32_t last_encoder = 0;
   uint32_t last_ticks = 0;
 
+  VelocityCommand_t velocity = {0.0f, 0.0f};
+  ControlFeedback_t feedback = {0, 0, 0.0f, 0, false};
+
   pid.SetOutputLimits(1023, -1023);
   pid.SetDirection(-1);
   
@@ -162,19 +179,58 @@ static void PIDTask(void *arg) {
     motor_speed = 0.8 * motor_speed + 0.2 * (encoder - last_encoder);
     last_encoder = encoder;
 
-    if(fabs(bala_angle) < 70) {
+    // Gains arrive from ROS on core 0; reconfigure only when they change.
+    PidGains_t new_gains;
+    if (ControlTakeGains(&new_gains)) {
+      kp = new_gains.kp; ki = new_gains.ki; kd = new_gains.kd;
+      s_kp = new_gains.s_kp; s_ki = new_gains.s_ki; s_kd = new_gains.s_kd;
+      pid.UpdateParam(kp, ki, kd);
+      speed_pid.UpdateParam(s_kp, s_ki, s_kd);
+    }
+
+    ControlGetVelocity(&velocity);
+    bool enabled = ControlIsEnabled();
+
+    if (enabled && fabs(bala_angle) < 70) {
+      // The speed PID holds position at zero wheel speed, so a drive command is
+      // expressed as an offset to its setpoint rather than added to the output.
+      // That keeps the balance loop in charge of staying upright.
+      speed_pid.SetPoint(velocity.linear * DRIVE_SPEED_SCALE);
+
       pwm_angle = (int16_t)pid.Update(bala_angle);
       pwm_speed = (int16_t)speed_pid.Update(motor_speed);
       pwm_output = pwm_speed + pwm_angle;
       if(pwm_output > 1023) { pwm_output = 1023; }
       if(pwm_output < -1023) { pwm_output = -1023; }
-      bala.SetSpeed(pwm_output, pwm_output);
+
+      // Differential term steers: positive angular turns one way, negative the
+      // other. A spin turn is simply linear = 0 with angular at full scale.
+      int16_t turn = (int16_t)(velocity.angular * TURN_PWM_SCALE);
+      int16_t pwm_left = pwm_output - turn;
+      int16_t pwm_right = pwm_output + turn;
+      if(pwm_left > 1023) { pwm_left = 1023; }
+      if(pwm_left < -1023) { pwm_left = -1023; }
+      if(pwm_right > 1023) { pwm_right = 1023; }
+      if(pwm_right < -1023) { pwm_right = -1023; }
+      bala.SetSpeed(pwm_left, pwm_right);
     } else {
       pwm_angle = 0;
+      pwm_speed = 0;
+      pwm_output = 0;
+      speed_pid.SetPoint(0);
       bala.SetSpeed(0, 0);
       bala.SetEncoder(0, 0);
       speed_pid.SetIntegral(0);
+      last_encoder = 0;
+      motor_speed = 0;
     }
+
+    feedback.encoder_left = bala.wheel_left_encoder;
+    feedback.encoder_right = bala.wheel_right_encoder;
+    feedback.wheel_speed = motor_speed;
+    feedback.pwm_output = pwm_output;
+    feedback.enabled = enabled;
+    ControlPublishFeedback(&feedback);
 
 #if BALA_DEBUG_TELEMETRY
     // The control law is dominated by kd * (angle change per cycle), so both the

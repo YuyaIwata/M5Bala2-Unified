@@ -7,5 +7,6 @@ profiles:
     libraries:
       - M5Unified (0.2.19)
       - M5GFX (0.2.26)
+      - dir: ./libraries/micro_ros_arduino
 
 default_profile: m5stack_fire
