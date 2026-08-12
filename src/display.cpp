@@ -121,6 +121,19 @@ void DrawFrame(float angle, bool push) {
   canvas.setTextColor(LinkColor(link));
   canvas.drawString(LinkLabel(link), SCREEN_W - 8, 10);
 
+  // A balancing robot that cannot recover looks like a tuning problem and is
+  // often just a flat battery, so the charge state stays on screen. Note this is
+  // the M5Stack's own cell; the BALA2 base powers the motors from its own pack,
+  // which cannot be read from here.
+  int32_t level = M5.Power.getBatteryLevel();
+  int16_t millivolts = M5.Power.getBatteryVoltage();
+  uint16_t batt_color = TFT_GREEN;
+  if (level < 20) { batt_color = TFT_RED; }
+  else if (level < 40) { batt_color = TFT_ORANGE; }
+  canvas.setTextColor(batt_color);
+  canvas.drawString(String(level) + "% " + String(millivolts / 1000.0f, 2) + "V",
+                    SCREEN_W - 8, 28);
+
   // Horizontal guides every 5 degrees, with the zero line emphasised.
   for (int16_t deg = -20; deg <= 20; deg += 5) {
     int16_t y = WAVE_BASE_Y - deg * WAVE_SCALE;
