@@ -97,6 +97,10 @@ float s_kp = 15.0f, s_ki = 0.075f, s_kd = 50.0f; // 速度 PID
 | Sub | `/drive_scale` | `std_msgs/Float32MultiArray` | speed_scale, yaw_rate_scale, yaw_kp, yaw_kd, pos_kp, pos_kd の 6 要素 |
 | Sub | `/center_angle` | `std_msgs/Float32` | 中心角を度で設定。保存はボタン B |
 
+配信と購読は別のタスクに分けています。`rclc_executor_spin_some` は指定したタイムアウトを無視し、受信データがなければ約 1 秒ブロックするためです。実測では、タイムアウト 0 だとセッションが UDP ソケットをほとんど読まず `cmd_vel` の受信が 20 送信中 4 件に落ち、2ms にすると受信は 100% になる代わりに配信が 50Hz から 16Hz に落ちました。購読専用タスクを分けることで、受信 100% と配信 50Hz が両立します。
+
+配信は rcl タイマーを使わず、タスク内で `millis()` によりペーシングしています。executor 内のタイマーは上記のブロックに律速されて 1Hz しか発火できませんでした。
+
 購読は 5 個が上限です。プリコンパイル済みの `micro_ros_arduino` が `RMW_UXRCE_MAX_SUBSCRIPTIONS 5` でビルドされているためで、6 個目を作るとエンティティ生成全体が失敗します（配信は 10 個まで）。中心角の保存を独立したトピックにせずボタン B に残しているのはこの制約のためです。
 
 `cmd_vel` は 500ms 途絶えると速度指令が 0 に戻ります。バランス制御は維持したまま走行だけを止める設計です。エージェントとの接続が切れた場合は `enable` を false に落とします。

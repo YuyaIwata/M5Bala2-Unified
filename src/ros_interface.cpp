@@ -34,6 +34,7 @@ namespace {
 
 constexpr uint32_t PUBLISH_PERIOD_MS = 20;   // 50Hz
 constexpr uint32_t TASK_PERIOD_MS = 10;
+constexpr uint32_t SPIN_TIMEOUT_MS = 20;
 constexpr uint32_t PING_PERIOD_MS = 2000;
 // Measured over 30s on this network: one 0.74s gap in an otherwise steady 48Hz
 // stream. Declaring the agent lost on a single missed ping turned that transient
@@ -81,6 +82,10 @@ float scale_buffer[DRIVE_SCALE_COUNT];
 char imu_frame_id[] = "imu_link";
 
 volatile RosLinkState_t link_state = ROS_LINK_WIFI_WAIT;
+
+// Set while the executor is valid, so the subscription task knows when it may
+// spin and when the entities are being torn down.
+volatile bool executor_ready = false;
 
 enum AgentState {
   WAITING_AGENT,
@@ -156,8 +161,15 @@ void PublishSample() {
   rcl_publish(&center_pub, &center_state_msg, NULL);
 }
 
+#if BALA_DEBUG_TELEMETRY
+uint32_t cmd_vel_received = 0;
+#endif
+
 void CmdVelCallback(const void* msgin) {
   const geometry_msgs__msg__Twist* m = (const geometry_msgs__msg__Twist*)msgin;
+#if BALA_DEBUG_TELEMETRY
+  cmd_vel_received++;
+#endif
   VelocityCommand_t cmd;
   cmd.linear = constrain((float)m->linear.x, -1.0f, 1.0f) * LINEAR_COMMAND_SCALE;
   cmd.angular = constrain((float)m->angular.z, -1.0f, 1.0f) * ANGULAR_COMMAND_SCALE;
@@ -331,10 +343,16 @@ bool CreateEntities() {
 
   time_synced = (rmw_uros_sync_session(1000) == RMW_RET_OK);
 
+  executor_ready = true;
   return true;
 }
 
 void DestroyEntities() {
+  executor_ready = false;
+  // The subscription task may be inside spin_some right now; give it time to come
+  // back out before the executor is torn down under it.
+  vTaskDelay(pdMS_TO_TICKS(SPIN_TIMEOUT_MS * 2 + 1050));
+
   rmw_context_t* rmw_context = rcl_context_get_rmw_context(&support.context);
   rmw_uros_set_context_entity_destroy_session_timeout(rmw_context, 0);
 
@@ -353,6 +371,18 @@ void DestroyEntities() {
   rclc_support_fini(&support);
 
   time_synced = false;
+}
+
+// Receiving runs in its own task because spin_some blocks: keeping it out of the
+// publishing task lets commands arrive at full rate without throttling telemetry.
+void RosSpinTask(void* /*arg*/) {
+  for (;;) {
+    if (executor_ready) {
+      rclc_executor_spin_some(&executor, RCL_MS_TO_NS(SPIN_TIMEOUT_MS));
+    } else {
+      vTaskDelay(pdMS_TO_TICKS(50));
+    }
+  }
 }
 
 void RosTask(void* /*arg*/) {
@@ -423,15 +453,6 @@ void RosTask(void* /*arg*/) {
 #endif
         }
 
-#if BALA_DEBUG_TELEMETRY
-        uint32_t spin_t0 = micros();
-#endif
-        // Timeout 0: poll for incoming commands without blocking. Anything
-        // larger stalls this loop for about a second.
-        rclc_executor_spin_some(&executor, 0);
-#if BALA_DEBUG_TELEMETRY
-        last_spin_us = micros() - spin_t0;
-#endif
         break;
       }
 
@@ -453,12 +474,15 @@ void RosTask(void* /*arg*/) {
       if (last_spin_us > spin_max) { spin_max = last_spin_us; }
       uint32_t now2 = millis();
       if (now2 - win >= 1000) {
-        Serial.printf("[ros] loop=%lu/s pub=%lu/s spin_avg=%luus spin_max=%luus\n",
+        static uint32_t cmd_prev = 0;
+        Serial.printf("[ros] loop=%lu/s pub=%lu/s cmd_rx=%lu/s spin_avg=%luus spin_max=%luus\n",
                       (unsigned long)iters,
                       (unsigned long)(published - published_prev),
+                      (unsigned long)(cmd_vel_received - cmd_prev),
                       (unsigned long)(iters ? spin_sum / iters : 0),
                       (unsigned long)spin_max);
         published_prev = published;
+        cmd_prev = cmd_vel_received;
         iters = 0; spin_sum = 0; spin_max = 0; win = now2;
       }
     }
@@ -482,6 +506,9 @@ void RosTaskStart() {
   // Core 0 with the display. Priority above the display so ROS traffic is not
   // held up by a frame, but still below the control tasks on core 1.
   xTaskCreatePinnedToCore(RosTask, "ros_task", 16 * 1024, NULL, 2, NULL, 0);
+  // Same core, same priority: the spin task spends nearly all of its time blocked
+  // waiting for a datagram, so it costs almost no CPU.
+  xTaskCreatePinnedToCore(RosSpinTask, "ros_spin", 8 * 1024, NULL, 2, NULL, 0);
 }
 
 RosLinkState_t RosGetLinkState() { return link_state; }
