@@ -71,9 +71,12 @@ void DrawStatusRow(const ControlFeedback_t& fb, const VelocityCommand_t& cmd) {
   if (cmd.linear > 0.05f) { drive = "FWD "; drive_color = TFT_CYAN; }
   else if (cmd.linear < -0.05f) { drive = "REV "; drive_color = TFT_CYAN; }
 
+  // REP-103: a positive angular.z is counter-clockwise seen from above, which is
+  // a left turn. The differential was flipped to match that convention; this
+  // label was not, so the display contradicted the robot.
   const char* turn = "  ";
-  if (cmd.angular > 0.05f) { turn = " R"; }
-  else if (cmd.angular < -0.05f) { turn = " L"; }
+  if (cmd.angular > 0.05f) { turn = " L"; }
+  else if (cmd.angular < -0.05f) { turn = " R"; }
 
   canvas.setTextColor(drive_color);
   canvas.setCursor(96, STATUS_Y);
