@@ -125,14 +125,14 @@ void DrawFrame(float angle, bool push) {
   // often just a flat battery, so the charge state stays on screen. Note this is
   // the M5Stack's own cell; the BALA2 base powers the motors from its own pack,
   // which cannot be read from here.
+  // The Fire's IP5306 has no voltage register, so getBatteryVoltage() returns 0
+  // and the level only moves in 25% steps. Show the level alone.
   int32_t level = M5.Power.getBatteryLevel();
-  int16_t millivolts = M5.Power.getBatteryVoltage();
   uint16_t batt_color = TFT_GREEN;
-  if (level < 20) { batt_color = TFT_RED; }
-  else if (level < 40) { batt_color = TFT_ORANGE; }
+  if (level < 30) { batt_color = TFT_RED; }
+  else if (level < 60) { batt_color = TFT_ORANGE; }
   canvas.setTextColor(batt_color);
-  canvas.drawString(String(level) + "% " + String(millivolts / 1000.0f, 2) + "V",
-                    SCREEN_W - 8, 28);
+  canvas.drawString("BAT " + String(level) + "%", SCREEN_W - 8, 28);
 
   // Horizontal guides every 5 degrees, with the zero line emphasised.
   for (int16_t deg = -20; deg <= 20; deg += 5) {
