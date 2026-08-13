@@ -65,3 +65,9 @@ obj/
 !.vscode/tasks.json
 !.vscode/settings.json
 !.vscode/c_cpp_properties.json
+
+# Fetched on demand by tools/fetch_micro_ros.sh (ships a 22MB libmicroros.a).
+libraries/
+
+# Wi-Fi credentials and agent address.
+src/ros_config.h

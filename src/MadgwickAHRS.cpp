@@ -53,6 +53,16 @@ void MadgwickAHRSetDeltaT(float delta_t) {
 	}
 }
 
+// Expose the filter state so it can be published as an orientation. Without a
+// magnetometer in the loop the yaw component is only relative to wherever the
+// filter started, and it drifts; roll and pitch are gravity-referenced.
+void MadgwickAHRSGetQuaternion(float* w, float* x, float* y, float* z) {
+	*w = q0;
+	*x = q1;
+	*y = q2;
+	*z = q3;
+}
+
 
 
 //---------------------------------------------------------------------------------------------------

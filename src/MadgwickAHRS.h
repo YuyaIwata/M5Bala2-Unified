@@ -25,6 +25,7 @@ void MadgwickAHRSupdate(float gx, float gy, float gz, float ax, float ay, float 
 void MadgwickAHRSupdateIMU(float gx, float gy, float gz, float ax, float ay, float az, float *pitch, float *roll, float *yaw);
 void MadgwickAHRSetBeta(float beta);
 void MadgwickAHRSetDeltaT(float delta_t);
+void MadgwickAHRSGetQuaternion(float* w, float* x, float* y, float* z);
 #endif
 //=====================================================================================================
 // End of file

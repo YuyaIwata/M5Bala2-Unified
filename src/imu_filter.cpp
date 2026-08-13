@@ -10,6 +10,10 @@ static volatile float angle;
 SemaphoreHandle_t angle_lock = NULL;
 static void ImuUpdateTask(void *arg);
 
+// Published alongside the angle so that consumers (micro-ROS) get one coherent
+// sample instead of separately locked reads.
+static ImuState_t imu_state;
+
 float gryo_x_offset;
 float gryo_y_offset;
 float gryo_z_offset;
@@ -53,6 +57,21 @@ float getAngle() {
   angle_out = angle;
   xSemaphoreGive(angle_lock);
   return angle_out;
+}
+
+void getImuState(ImuState_t* state) {
+  if (state == NULL) {
+    return;
+  }
+  if (angle_lock == NULL) {
+    memset(state, 0, sizeof(ImuState_t));
+    state->quat_w = 1.0f;
+    return;
+  }
+
+  xSemaphoreTake(angle_lock, portMAX_DELAY);
+  *state = imu_state;
+  xSemaphoreGive(angle_lock);
 }
 
 // M5Unified initialises the MPU6886 with SMPLRT_DIV=3 (250Hz). Every other
@@ -168,6 +187,16 @@ void ImuUpdateTask(void *arg) {
       if (!fast_to_normal_angle) {
         angle = roll_ahrs;
       }
+      MadgwickAHRSGetQuaternion(&imu_state.quat_w, &imu_state.quat_x,
+                                &imu_state.quat_y, &imu_state.quat_z);
+      imu_state.gyro_x = gyro_x;
+      imu_state.gyro_y = gyro_y;
+      imu_state.gyro_z = gyro_z;
+      imu_state.accel_x = acc_x;
+      imu_state.accel_y = acc_y;
+      imu_state.accel_z = acc_z;
+      imu_state.angle = angle;
+      imu_state.usec = imu_data.usec;
       xSemaphoreGive(angle_lock);
 
 #if BALA_DEBUG_TELEMETRY

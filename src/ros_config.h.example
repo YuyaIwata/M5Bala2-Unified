@@ -1,0 +1,18 @@
+// Copy this file to src/ros_config.h and fill in your network.
+// src/ros_config.h is gitignored so credentials stay out of the repository.
+#ifndef __ROS_CONFIG_H__
+#define __ROS_CONFIG_H__
+
+#define ROS_WIFI_SSID     "your-ssid"
+#define ROS_WIFI_PASSWORD "your-password"
+
+// Host running the micro-ROS agent, e.g.
+//   docker run -it --rm --net=host microros/micro-ros-agent:jazzy udp4 --port 8888 -v4
+#define ROS_AGENT_IP   "192.168.0.10"
+#define ROS_AGENT_PORT 8888
+
+// Node name and topic namespace.
+#define ROS_NODE_NAME "bala2"
+#define ROS_NAMESPACE ""
+
+#endif
