@@ -97,7 +97,13 @@ float s_kp = 15.0f, s_ki = 0.075f, s_kd = 50.0f; // 速度 PID
 | Sub | `/drive_scale` | `std_msgs/Float32MultiArray` | speed_scale, yaw_rate_scale, yaw_kp, yaw_kd, pos_kp, pos_kd の 6 要素 |
 | Sub | `/center_angle` | `std_msgs/Float32` | 中心角を度で設定。保存はボタン B |
 
-配信と購読は別のタスクに分けています。`rclc_executor_spin_some` は指定したタイムアウトを無視し、受信データがなければ約 1 秒ブロックするためです。実測では、タイムアウト 0 だとセッションが UDP ソケットをほとんど読まず `cmd_vel` の受信が 20 送信中 4 件に落ち、2ms にすると受信は 100% になる代わりに配信が 50Hz から 16Hz に落ちました。購読専用タスクを分けることで、受信 100% と配信 50Hz が両立します。
+配信も購読も 1 つのタスクで行い、`rclc_executor_spin_some` は使っていません。代わりに `rmw_uros_ping_agent` でセッションを走らせ、`rcl_take` で購読キューを非ブロッキングに読みます。
+
+`rclc_executor_spin_some` は**指定したタイムアウトを無視します**。実測では、受信データがある間は約 42ms、リンクが空いている間は約 990ms ブロックし、渡す値（0、1ms、2ms、20ms）を一切参照しませんでした。これに配信を同居させると 18〜21Hz、指令が止まると 1Hz まで落ちます。
+
+購読を別タスクに分ける方法は使えません。プリコンパイル済みの `micro_ros_arduino` は `UCLIENT_PROFILE_MULTITHREAD` が無効でビルドされており、2 つのタスクから同一セッションに触ると出力ストリームが壊れます。エージェント側に `deserialization error processing WRITE_DATA submessage` が出て、機体が転倒しました。
+
+ping と `rcl_take` の組み合わせでは、受信処理が 3〜10ms で完了し、指令がない状態で配信 45〜48Hz、指令が 20Hz で流れている間は 29〜40Hz を維持します。`cmd_vel` の受信率は 100% です。
 
 配信は rcl タイマーを使わず、タスク内で `millis()` によりペーシングしています。executor 内のタイマーは上記のブロックに律速されて 1Hz しか発火できませんでした。
 

@@ -34,7 +34,7 @@ namespace {
 
 constexpr uint32_t PUBLISH_PERIOD_MS = 20;   // 50Hz
 constexpr uint32_t TASK_PERIOD_MS = 10;
-constexpr uint32_t SPIN_TIMEOUT_MS = 20;
+constexpr uint32_t SPIN_TIMEOUT_MS = 1;
 constexpr uint32_t PING_PERIOD_MS = 2000;
 // Measured over 30s on this network: one 0.74s gap in an otherwise steady 48Hz
 // stream. Declaring the agent lost on a single missed ping turned that transient
@@ -349,9 +349,6 @@ bool CreateEntities() {
 
 void DestroyEntities() {
   executor_ready = false;
-  // The subscription task may be inside spin_some right now; give it time to come
-  // back out before the executor is torn down under it.
-  vTaskDelay(pdMS_TO_TICKS(SPIN_TIMEOUT_MS * 2 + 1050));
 
   rmw_context_t* rmw_context = rcl_context_get_rmw_context(&support.context);
   rmw_uros_set_context_entity_destroy_session_timeout(rmw_context, 0);
@@ -373,15 +370,35 @@ void DestroyEntities() {
   time_synced = false;
 }
 
-// Receiving runs in its own task because spin_some blocks: keeping it out of the
-// publishing task lets commands arrive at full rate without throttling telemetry.
-void RosSpinTask(void* /*arg*/) {
-  for (;;) {
-    if (executor_ready) {
-      rclc_executor_spin_some(&executor, RCL_MS_TO_NS(SPIN_TIMEOUT_MS));
-    } else {
-      vTaskDelay(pdMS_TO_TICKS(50));
-    }
+// rclc_executor_spin_some ignores the timeout it is handed: measured on hardware it
+// returns after about 42ms while messages are arriving and about 990ms when the
+// link is idle, whatever value is passed. That caps publishing at ~20Hz. Splitting
+// it into a second task is not an option either, because the precompiled library
+// is built without UCLIENT_PROFILE_MULTITHREAD and two tasks sharing the session
+// corrupt the output stream (the agent reports deserialization errors).
+//
+// So drive the session with a short ping and drain the subscriptions with
+// rcl_take, which does not block.
+void ServiceSubscriptions() {
+  // The ping runs the session, which is what moves incoming datagrams into the
+  // subscription queues.
+  rmw_uros_ping_agent(1, 1);
+
+  rmw_message_info_t info;
+  while (rcl_take(&cmd_vel_sub, &cmd_vel_msg, &info, NULL) == RCL_RET_OK) {
+    CmdVelCallback(&cmd_vel_msg);
+  }
+  while (rcl_take(&enable_sub, &enable_msg, &info, NULL) == RCL_RET_OK) {
+    EnableCallback(&enable_msg);
+  }
+  while (rcl_take(&gains_sub, &gains_msg, &info, NULL) == RCL_RET_OK) {
+    GainsCallback(&gains_msg);
+  }
+  while (rcl_take(&scale_sub, &scale_msg, &info, NULL) == RCL_RET_OK) {
+    ScaleCallback(&scale_msg);
+  }
+  while (rcl_take(&center_sub, &center_msg, &info, NULL) == RCL_RET_OK) {
+    CenterAngleCallback(&center_msg);
   }
 }
 
@@ -453,6 +470,13 @@ void RosTask(void* /*arg*/) {
 #endif
         }
 
+#if BALA_DEBUG_TELEMETRY
+        uint32_t spin_t0 = micros();
+#endif
+        ServiceSubscriptions();
+#if BALA_DEBUG_TELEMETRY
+        last_spin_us = micros() - spin_t0;
+#endif
         break;
       }
 
@@ -506,9 +530,6 @@ void RosTaskStart() {
   // Core 0 with the display. Priority above the display so ROS traffic is not
   // held up by a frame, but still below the control tasks on core 1.
   xTaskCreatePinnedToCore(RosTask, "ros_task", 16 * 1024, NULL, 2, NULL, 0);
-  // Same core, same priority: the spin task spends nearly all of its time blocked
-  // waiting for a datagram, so it costs almost no CPU.
-  xTaskCreatePinnedToCore(RosSpinTask, "ros_spin", 8 * 1024, NULL, 2, NULL, 0);
 }
 
 RosLinkState_t RosGetLinkState() { return link_state; }
