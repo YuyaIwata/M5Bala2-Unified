@@ -208,6 +208,7 @@ static void PIDTask(void *arg) {
   float position_target = 0.0f;
   ImuState_t imu_state;
   float last_linear = 0.0f;
+  bool last_enabled = false;
   float yaw_measured = 0.0f;   // integrated gyro Z, degrees, relative to startup
   float yaw_target = 0.0f;
   const float dt = PID_PERIOD_MS * 0.001f;
@@ -255,6 +256,17 @@ static void PIDTask(void *arg) {
     angle_point = ControlGetCenterAngle();
     pid.SetPoint(angle_point);
     bool enabled = ControlIsEnabled();
+
+    // Enabling while the robot is held well away from balance left the heading
+    // loop with a large error on its first cycle and it asked for the full
+    // differential straight away. Re-zero both outer loops on the transition.
+    if (enabled && !last_enabled) {
+      yaw_target = yaw_measured;
+      position_target = (bala.wheel_left_encoder + bala.wheel_right_encoder) * 0.5f;
+      speed_pid.SetIntegral(0);
+      turn = 0;
+    }
+    last_enabled = enabled;
 
     if (enabled && fabs(bala_angle) < 70) {
       // The speed PID holds position at zero wheel speed, so a drive command is
