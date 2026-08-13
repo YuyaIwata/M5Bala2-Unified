@@ -1,0 +1,17 @@
+# Keyboard teleoperation container for M5Bala2-Unified.
+#
+# Based on the micro-ROS agent image rather than plain ros:jazzy for two reasons:
+# it is already present locally once the agent has been pulled, and it guarantees
+# the same ROS distribution and DDS build as the agent this talks to.
+FROM microros/micro-ros-agent:jazzy
+
+# The base image's entrypoint launches the agent; this container runs teleop.
+ENTRYPOINT []
+
+COPY bala2_teleop.py /opt/bala2/bala2_teleop.py
+RUN chmod +x /opt/bala2/bala2_teleop.py
+
+# TERM keeps the status line's escape codes working when run with -t.
+ENV TERM=xterm-256color
+
+CMD ["/bin/bash", "-lc", "source /opt/ros/$ROS_DISTRO/setup.bash && exec python3 -u /opt/bala2/bala2_teleop.py"]

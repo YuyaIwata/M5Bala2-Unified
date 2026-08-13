@@ -118,6 +118,19 @@ container run --rm --name uros-agent -p 8888:8888/udp \
   microros/micro-ros-agent:jazzy udp4 --port 8888 -v4
 ```
 
+### キーボード操作
+
+[tools/teleop/](tools/teleop/) にキーボード操作用のコンテナを用意しています。
+
+```bash
+cd tools/teleop && container build -t bala2-teleop -f Containerfile .
+container run --rm -it bala2-teleop
+```
+
+`w`/`s` で前後、`a`/`d` で旋回、`e`/`q` で有効化と無効化です。詳細は [tools/teleop/README.md](tools/teleop/README.md) を参照してください。
+
+`teleop_twist_keyboard` は使えません。`/enable` を扱えないうえ、最後の `Twist` を保持し続けるため、キーから手を離しても走り続けます。専用ノードは最後のキー入力から 0.7 秒で速度指令をゼロに戻します。
+
 ## 制御の構成
 
 4 つのループを重ねています。
@@ -178,6 +191,7 @@ container run --rm --name uros-agent -p 8888:8888/udp \
 | [src/ros_config.h.example](src/ros_config.h.example)                                    | Wi-Fi とエージェントの設定テンプレート                    |
 | [debug_config.h](debug_config.h)                                                        | シリアルテレメトリの有効/無効                             |
 | [tools/gen_vscode_config.py](tools/gen_vscode_config.py)                                | 実ビルドから IntelliSense 設定を生成                      |
+| [tools/teleop/](tools/teleop/)                                                          | キーボード操作コンテナ（ROS 2）                           |
 
 ## タスクとコアの割り当て
 
